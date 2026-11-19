@@ -44,7 +44,7 @@ POLICY_CASES = [
     ("There is a 75% chance of hitting the monthly target.", "flag:probability", "Probability of hitting target"),
     ("Contact the customer on 9876543210 to agree a payment plan.", "redact", "Personal data in an answer"),
     ("This is an observed difference between strategies, not a forecast of uplift.", "allow", "Required caveat (negated, must not be flagged)"),
-    ("Personal Loan has reached 92.4% of its monthly target, the lowest of the four products.", "allow", "Ordinary factual sentence"),
+    ("Personal Loan has reached 50.8% of its monthly target, the lowest of the five products.", "allow", "Ordinary factual sentence"),
 ]
 
 

@@ -168,6 +168,9 @@ class Sql:
     def run_file(self, path: Path, cfg: dict, rules: dict | None = None) -> None:
         text = path.read_text(encoding="utf-8")
         text = text.replace("{{catalog}}", cfg["catalog"]).replace("{{prefix}}", cfg["schema_prefix"])
+        # The data's as-of date and target month (config as_of_date, target_month): one setting, every view.
+        for name, value in date_tokens(cfg).items():
+            text = text.replace(f"{{{{{name}}}}}", value)
         # {{live:<name>}}: the rule read live from gold.qry_rules when the view is queried, so a changed
         # value in business_rules_config moves the view's figures at once.
         text = re.sub(r"\{\{live:([a-z0-9_]+)\}\}",
@@ -187,6 +190,13 @@ class Sql:
 
 # --------------------------------------------------------------------------- helpers
 
+def date_tokens(cfg: dict) -> dict:
+    """{{as_of_date}} 2026-10-20, {{target_month}} 2026-10-01, {{as_of_label}} 20 Oct 2026, {{month_label}} October 2026."""
+    as_of = date.fromisoformat(cfg["as_of_date"])
+    return {"as_of_date": as_of.isoformat(), "target_month": cfg["target_month"],
+            "as_of_label": f"{as_of.day} {as_of:%b %Y}", "month_label": f"{as_of:%B %Y}"}
+
+
 def ident(name: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_]+", name):
         raise DeployError(f"Unsafe identifier in config: {name!r}")
@@ -201,7 +211,10 @@ def load_config(path: Path) -> dict:
         "schema_prefix": "lenss_collections",
         "warehouse_id": None,
         "warehouse_name": None,
-        "xlsx_path": "all_details_and _data/LensS_Collections_Demo_Development_Pack.xlsx",
+        "xlsx_path": "raw_data/LensS_Collections_V4_Data_Pack.xlsx",
+        # The data's snapshot date and its target month: every view, the app and the summary use these.
+        "as_of_date": "2026-10-20",
+        "target_month": "2026-10-01",
         "genie_space_title": "LensS Collections Analytics",
         "genie_space_id": None,
         "lakebase_project": "lenss-collections-app",
@@ -223,6 +236,10 @@ def load_config(path: Path) -> dict:
         # The app stops itself after this many minutes without use (Databricks Apps never stop on their
         # own and bill while running). 0 = never. Someone with CAN_MANAGE on the app starts it again.
         "idle_stop_minutes": 60,
+        # Hours when the idle stop is paused, so the app stays on (e.g. a demo week):
+        # {"enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata"}. The window may cross
+        # midnight. "enabled": false (or no entry) = no pause. It never starts the app; a job does that.
+        "idle_stop_pause": None,
         # Databricks Apps telemetry: server logs (incl. the app's [error] lines), metrics and traces
         # written to <catalog>.<schema_prefix>_telemetry.lenss_otel_*. false = off.
         "app_telemetry": True,
@@ -233,6 +250,12 @@ def load_config(path: Path) -> dict:
         cfg.setdefault(k, v)
     for key in ("catalog", "schema_prefix"):
         ident(cfg[key])
+    try:
+        as_of, month = date.fromisoformat(cfg["as_of_date"]), date.fromisoformat(cfg["target_month"])
+    except (TypeError, ValueError):
+        raise DeployError(f"as_of_date and target_month must be YYYY-MM-DD, got {cfg['as_of_date']!r}, {cfg['target_month']!r}")
+    if month != as_of.replace(day=1):
+        raise DeployError(f"target_month must be the first day of as_of_date's month, got {cfg['target_month']}")
     # Checked up front so a bad name fails before anything is created (Lakebase and Apps reject
     # underscores and capitals in these IDs).
     for key in ("lakebase_project", "lakebase_database", "app_name"):
@@ -358,7 +381,7 @@ def step_transform(sql: Sql, cfg: dict) -> None:
     log(f"Business rules: {len(rules)} thresholds from gold.business_rules_config")
     c, p = cfg["catalog"], cfg["schema_prefix"]
     n = sql.execute(f"SELECT COUNT(*) FROM {c}.{p}_gold.qry_immediate_intervention")[0][0]
-    log(f"Transform done — sanity check: qry_immediate_intervention = {n} accounts (604 expected for the demo pack)")
+    log(f"Transform done — sanity check: qry_immediate_intervention = {n} accounts")
 
 
 def money(v) -> str:
@@ -401,6 +424,9 @@ def build_exec_summary(sql: Sql, gold: str) -> tuple[str, str]:
     accounts, opportunity = sql.execute(
         f"SELECT COUNT(*), SUM(Incremental_Recovery_Opportunity) FROM {gold}.qry_immediate_intervention")[0]
     (over_contact,) = sql.execute(f"SELECT COUNT(*) FROM {gold}.qry_over_contact_risk")[0]
+    (attempts,) = sql.execute(f"SELECT over_contact_attempts_threshold FROM {gold}.qry_rules")[0]
+    outlook = sql.execute(f"SELECT Target_Likelihood, Outlook_EOM_Recovery / Recovery_Target, Action_Upside, "
+                          f"Outlook_With_Action_Pct FROM {gold}.qry_cc_action_upside")
 
     gap = float(target) - float(collected)
     month = time.strftime("%B %Y", time.strptime(snapshot[:7], "%Y-%m"))
@@ -424,8 +450,14 @@ def build_exec_summary(sql: Sql, gold: str) -> tuple[str, str]:
             f"are where effort converts best.")
     parts.append(
         f"{int(accounts):,} accounts need immediate intervention, representing {money(opportunity)} of additional "
-        f"recovery, and {int(over_contact)} segments are being contacted 4.5 or more times per account, "
+        f"recovery, and {int(over_contact)} segments are being contacted {float(attempts):g} or more times per account, "
         f"a conduct and complaint risk to review.")
+    if outlook and outlook[0][0] in ("Low", "Medium"):
+        likely, share, upside, with_action = outlook[0]
+        parts.append(
+            f"On today's promises the month lands near {pct(share)} of target (likelihood {likely}); saving this week's "
+            f"at-risk promises and working the high-value and priority accounts could add {money(upside)}, "
+            f"taking it to about {pct(with_action)}.")
     return " ".join(parts), snapshot
 
 
@@ -621,6 +653,8 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
         "  - name: DATABRICKS_GENIE_SPACE_ID\n    valueFrom: genie-space\n"
         "  - name: DATABRICKS_WAREHOUSE_ID\n    valueFrom: sql-warehouse\n"
         f"  - name: LENSS_GOLD_SCHEMA\n    value: {gold}\n"
+        # The data's snapshot date (config as_of_date): the Command Center, Explorer and texts quote it.
+        f"  - name: LENSS_AS_OF_DATE\n    value: '{cfg['as_of_date']}'\n"
         "  # Direct endpoint host, not the '-pooler' one (it rejects OAuth logins).\n"
         f"  - name: PGHOST\n    value: {state['lakebase_host']}\n"
         f"  - name: PGDATABASE\n    value: {cfg['lakebase_database']}\n"
@@ -633,6 +667,7 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
         # Idle stop (server/lib/idleStop.ts): the app's own name, and minutes without use before it stops itself.
         + f"  - name: LENSS_APP_NAME\n    value: {cfg['app_name']}\n"
         + f"  - name: LENSS_IDLE_STOP_MINUTES\n    value: '{int(cfg.get('idle_stop_minutes') or 0)}'\n"
+        + f"  - name: LENSS_IDLE_STOP_PAUSE\n    value: '{idle_pause_value(cfg)}'\n"
         # Semantic cache, guardrails and judge settings (only the parts that are on).
         + (f"  - name: LENSS_AI_CONFIG\n    value: '{json.dumps(state['ai_config'], separators=(',', ':'))}'\n"
            if state.get("ai_config") else ""),
@@ -706,6 +741,17 @@ def configure_telemetry(db: Databricks, cfg: dict, name: str, spec: dict) -> boo
         "WARNING: couldn't turn on app telemetry (the feature may not be available in this workspace or region); "
         "the app works without it")
     return ok
+
+
+def idle_pause_value(cfg: dict) -> str:
+    """The idle-stop pause window for app.yaml, e.g. "17:30-07:00 Asia/Kolkata", or "" when off."""
+    p = cfg.get("idle_stop_pause") or {}
+    if not p.get("enabled", True) or not p.get("from") or not p.get("to"):
+        return ""
+    for t in (p["from"], p["to"]):
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(t)):
+            sys.exit(f"idle_stop_pause: '{t}' is not a 24-hour HH:MM time")
+    return f"{p['from']}-{p['to']} {p.get('tz', 'Asia/Kolkata')}"
 
 
 def check_page_scripts(app_dir: Path) -> None:
@@ -1154,6 +1200,8 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
             {"service_principal_name": sp, "permission_level": "CAN_MANAGE"}]}) is not None
         log(f"Idle stop: the app stops itself after {cfg['idle_stop_minutes']} minutes without use"
             if ok else "WARNING: couldn't let the app stop itself (CAN_MANAGE for its service principal); idle stop won't work")
+        pause = idle_pause_value(cfg)
+        log(f"Idle stop paused {pause}: the app stays on in those hours" if pause else "Idle stop pause: off")
 
     write_app_yaml(app_dir, cfg, state)
     log(f"Syncing {app_dir.name} -> {ws_path}")

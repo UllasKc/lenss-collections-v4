@@ -4,6 +4,7 @@ import type { Lakebase } from '../lib/answerCache.js';
 import { CATEGORIES, evalRunning, startEvalRun, type Category } from '../lib/evals.js';
 import type { GenieLike } from '../lib/genieRun.js';
 import { runSql } from '../lib/sql.js';
+import { AS_OF } from '../lib/asOf.js';
 
 /** Evals tab (cases, runs, results) and the Responsible AI page's live facts. */
 
@@ -117,7 +118,7 @@ export function buildEvalsRouter(appkit: { lakebase: Lakebase; genie: GenieLike 
                   FROM chatapp.usage_log`).then((r) => r.rows[0]).catch(() => null),
       db.query(`SELECT COUNT(*)::int AS questions, MIN(created_at) AS since FROM chatapp.usage_log`).then((r) => r.rows[0]).catch(() => null),
     ]);
-    res.json({ config: aiConfigSummary(), sources, latestEval: latest, guardCounts, totals });
+    res.json({ config: aiConfigSummary(), sources, latestEval: latest, guardCounts, totals, asOf: AS_OF });
   });
 
   return router;

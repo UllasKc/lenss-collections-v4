@@ -34,6 +34,9 @@
   let filter = 'all';
   let selected = null;
 
+  // The "i" info tip for a Gen-AI metric (infotips.js); empty if that script hasn't loaded.
+  const tip = key => (window.infoTip ? window.infoTip(key) : '');
+
   const statusOf = e => (e.guard_action === 'blocked' ? 'blocked' : e.success ? 'passed' : 'failed');
 
   // ---- headline row: groundedness, numeric reconciliation, latency, personal-data guardrail
@@ -49,9 +52,9 @@
     const piiOut = (insights.pii || []).filter(x => x.stage === 'output').reduce((a, x) => a + x.n, 0);
     const recon = r.checked ? r.found / r.checked : null;
     const cards = [
-      ['Groundedness score', p1(s.faithfulness), `${r.unsupported ? r.unsupported + ' unsupported claim' + (r.unsupported === 1 ? '' : 's') : 'Zero unsupported claims'} · ${r.llm_judged || 0} answers judged`, Number(s.faithfulness) >= 0.9 ? 'good' : 'warn'],
-      ['Numeric reconciliation', recon === null ? '—' : p1(recon), r.checked ? `${r.found} of ${r.checked} figures matched to query results` : 'No figures checked yet', recon !== null && recon >= 0.9 ? 'good' : 'warn'],
-      ['Average end-to-end latency', ms(p50), p95 ? `P95: ${ms(p95)} · quick ${lat.chat ? ms(lat.chat.p50) : '—'}, deep ${lat.agent ? ms(lat.agent.p50) : '—'}` : 'No live answers yet', null],
+      ['Groundedness score' + tip('groundedness'), p1(s.faithfulness), `${r.unsupported ? r.unsupported + ' unsupported claim' + (r.unsupported === 1 ? '' : 's') : 'Zero unsupported claims'} · ${r.llm_judged || 0} answers judged`, Number(s.faithfulness) >= 0.9 ? 'good' : 'warn'],
+      ['Numeric reconciliation' + tip('reconciliation'), recon === null ? '—' : p1(recon), r.checked ? `${r.found} of ${r.checked} figures matched to query results` : 'No figures checked yet', recon !== null && recon >= 0.9 ? 'good' : 'warn'],
+      ['Average end-to-end latency' + tip('latency'), ms(p50), p95 ? `P95: ${ms(p95)} · quick ${lat.chat ? ms(lat.chat.p50) : '—'}, deep ${lat.agent ? ms(lat.agent.p50) : '—'}` : 'No live answers yet', null],
       ['Personal-data guardrail', piiOut ? `${piiOut} redacted` : '100% pass', `${piiIn} question${piiIn === 1 ? '' : 's'} masked before processing · ${piiOut ? 'output redacted before display' : 'zero personal data in answers'}`, 'good'],
     ];
     document.getElementById('obsHeadline').innerHTML = cards.map(([l, v, sub, t]) =>
@@ -190,17 +193,17 @@
     const t = usage.totals || {};
     const rated = Number(s.up || 0) + Number(s.down || 0);
     document.getElementById('obsQualityTiles').innerHTML = [
-      ['Faithfulness', p1(s.faithfulness), 'claims and figures supported by the data'],
-      ['Relevance', p0(t.avg_relevance), 'answers the question asked (all time)'],
-      ['Completeness', p0(t.avg_completeness), 'covers every part of the question (all time)'],
-      ['Safety', p0(t.avg_safety), 'no personal data or unsupported forecasts (all time)'],
+      ['Faithfulness' + tip('faithfulness'), p1(s.faithfulness), 'claims and figures supported by the data'],
+      ['Relevance' + tip('relevance'), p0(t.avg_relevance), 'answers the question asked (all time)'],
+      ['Completeness' + tip('completeness'), p0(t.avg_completeness), 'covers every part of the question (all time)'],
+      ['Safety' + tip('safety'), p0(t.avg_safety), 'no personal data or unsupported forecasts (all time)'],
       ['Satisfaction', rated ? Math.round(100 * Number(s.up) / rated) + '%' : '—', `👍 ${s.up || 0} · 👎 ${s.down || 0}`],
     ].map(([l, v, sub]) => `<div class="metric"><div class="metric-top"><span>${l}</span></div><div class="metric-v">${v}</div><div class="metric-s">${sub}</div></div>`).join('');
-    const m = [['Faithfulness', Number(t.avg_faithfulness)], ['Relevance', Number(t.avg_relevance)], ['Completeness', Number(t.avg_completeness)], ['Safety', Number(t.avg_safety)]];
+    const m = [['Faithfulness' + tip('faithfulness'), Number(t.avg_faithfulness)], ['Relevance' + tip('relevance'), Number(t.avg_relevance)], ['Completeness' + tip('completeness'), Number(t.avg_completeness)], ['Safety' + tip('safety'), Number(t.avg_safety)]];
     document.getElementById('obsMetrics').innerHTML = `<div class="panel-head"><div><h3>Quality metrics (all time)</h3><div class="panel-sub">Scored by the answer-quality judge on every live answer</div></div></div>
       <div class="panel-body">${m.map(([l, v]) => bar(l, v || 0, 1, p1(v), v >= 0.9 ? 'good' : v >= 0.75 ? 'warn' : 'bad')).join('')}</div>`;
     const low = insights.lowConfidence || [];
-    document.getElementById('obsLowConf').innerHTML = `<div class="panel-head"><div><h3>Low-confidence answers</h3><div class="panel-sub">Scored below the warning threshold in this period</div></div></div>
+    document.getElementById('obsLowConf').innerHTML = `<div class="panel-head"><div><h3>Low-confidence answers${tip('lowConfidence')}</h3><div class="panel-sub">Scored below the warning threshold in this period; under each, its unsupported claims${tip('unsupported')}</div></div></div>
       <div class="panel-body">${low.map(x => `<button class="lc-item" data-id="${x.event_id}"><span class="chip bad">${p0(x.faithfulness)}</span><span class="lc-q">${oEsc(x.question)}</span>
         <small>${[...(x.unsupported || []), ...(x.missing || []).map(v => 'figure ' + v)].slice(0, 3).map(oEsc).join(' · ') || 'no detail recorded'}</small></button>`).join('') || '<div class="empty-note">None: every scored answer cleared the threshold.</div>'}</div>`;
     document.querySelectorAll('#obsLowConf .lc-item').forEach(b => b.addEventListener('click', () => { selected = b.dataset.id; filter = 'all'; showPane('traces'); renderTraceList(); renderTraceDetail(); }));
@@ -223,7 +226,7 @@
     const p = cache.lastPrewarm;
     document.getElementById('obsFreshness').innerHTML = `<div class="panel-head"><div><h3>Data freshness &amp; versions</h3><div class="panel-sub">What the assistant is answering from right now</div></div></div>
       <div class="panel-body"><table class="mini"><tbody>
-        <tr><td>Data snapshot</td><td><b>15 September 2026</b></td></tr>
+        <tr><td>Data snapshot</td><td><b>${oEsc(usage.asOfLabel || usage.asOf || '—')}</b></td></tr>
         <tr><td>Data version</td><td class="mono">${oEsc(v.data ? v.data.version : '—')}</td><td class="muted">${v.data ? new Date(v.data.updated_at).toLocaleString() : ''}</td></tr>
         <tr><td>Semantic model version</td><td class="mono">${oEsc(v.genie ? v.genie.version : '—')}</td><td class="muted">${v.genie ? new Date(v.genie.updated_at).toLocaleString() : ''}</td></tr>
         <tr><td>Answer cache</td><td>${cache.enabled ? `${(cache.entries || []).length} answers for these versions` : 'off'}</td></tr>

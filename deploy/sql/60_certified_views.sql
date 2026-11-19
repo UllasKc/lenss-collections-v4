@@ -11,13 +11,13 @@ WITH recovery AS (
   SELECT DATE_TRUNC('month', Snapshot_Date) AS Reporting_Month, Product, DPD_Bucket,
          SUM(Recovery_MTD) AS MTD_Collections
   FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-  WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+  WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
   GROUP BY DATE_TRUNC('month', Snapshot_Date), Product, DPD_Bucket
 ), target AS (
   SELECT Target_Month, Product, DPD_Bucket, SUM(Monthly_Target) AS Monthly_Target,
          SUM(Eligible_Balance) AS Eligible_Balance, SUM(Daily_Target) AS Daily_Target
   FROM {{catalog}}.{{prefix}}_silver.fact_targets
-  WHERE Target_Month = DATE '2026-09-01'
+  WHERE Target_Month = DATE '{{target_month}}'
   GROUP BY Target_Month, Product, DPD_Bucket
 )
 SELECT r.Reporting_Month, r.Product, r.DPD_Bucket, r.MTD_Collections, t.Monthly_Target,
@@ -26,9 +26,9 @@ SELECT r.Reporting_Month, r.Product, r.DPD_Bucket, r.MTD_Collections, t.Monthly_
        GREATEST(t.Monthly_Target-r.MTD_Collections,0) AS Target_Gap
 FROM recovery r LEFT JOIN target t
   ON r.Reporting_Month=t.Target_Month AND r.Product=t.Product AND r.DPD_Bucket=t.DPD_Bucket;
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target IS 'Answers: "What is my MTD collections performance versus target?" (client query 1). One row per product x DPD bucket for September 2026: collections month to date (accounts in collections, snapshot 15 Sep 2026) against the monthly target, achievement % and remaining gap. The source of truth for every target question: SUM the columns for the portfolio headline (as on the Command Center); use qry_product_vs_target for the per-product summary.';
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target IS 'Answers: "What is my MTD collections performance versus target?" (client query 1). One row per product x DPD bucket for {{month_label}}: collections month to date (accounts in collections, snapshot {{as_of_label}}) against the monthly target, achievement % and remaining gap. The source of truth for every target question: SUM the columns for the portfolio headline (as on the Command Center); use qry_product_vs_target for the per-product summary.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target.MTD_Collections IS 'Recovered month to date (INR), accounts with DPD > 0';
-COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target.Monthly_Target IS 'September 2026 recovery target (INR), aggregated at its own grain before the join';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target.Monthly_Target IS '{{month_label}} recovery target (INR), aggregated at its own grain before the join';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target.Target_Achievement_Pct IS 'MTD_Collections / Monthly_Target (a fraction: 0.9 = 90%)';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_mtd_vs_target.Target_Gap IS 'Target still to collect (INR), never negative';
 
@@ -36,10 +36,10 @@ CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_month_end_forecast AS
 WITH c AS (
  SELECT Snapshot_Date, SUM(Recovery_MTD) AS MTD_Collections
  FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
- WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0 GROUP BY Snapshot_Date
+ WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0 GROUP BY Snapshot_Date
 ), t AS (
  SELECT SUM(Monthly_Target) AS Monthly_Target FROM {{catalog}}.{{prefix}}_silver.fact_targets
- WHERE Target_Month = DATE '2026-09-01'
+ WHERE Target_Month = DATE '{{target_month}}'
 )
 SELECT c.Snapshot_Date, c.MTD_Collections, t.Monthly_Target,
        1.0*c.MTD_Collections/EXTRACT(DAY FROM c.Snapshot_Date) AS Average_Daily_Recovery,
@@ -48,7 +48,7 @@ SELECT c.Snapshot_Date, c.MTD_Collections, t.Monthly_Target,
        (1.0*c.MTD_Collections/EXTRACT(DAY FROM c.Snapshot_Date)
          * EXTRACT(DAY FROM LAST_DAY(c.Snapshot_Date)))/NULLIF(t.Monthly_Target,0) AS Forecast_Target_Achievement_Pct
 FROM c CROSS JOIN t;
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_month_end_forecast IS 'Client query 5 (calendar-day run-rate forecast), kept for reference only and deliberately NOT a Genie source: on a single mid-month snapshot it projects ~174% of target, contradicting MTD versus target. The app never forecasts; the Command Center outlook (qry_cc_target_outlook) is a promise pipeline, not a forecast.';
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_month_end_forecast IS 'Client query 5 (calendar-day run-rate forecast), kept for reference only and deliberately NOT a Genie source: on a single snapshot it only scales the month-to-date average by calendar days, ignoring when promises fall due and the business calendar (rule R13), so it is not a forecast. The app never forecasts; the Command Center outlook (qry_cc_target_outlook) is a promise pipeline, not a forecast.';
 
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_kpi_drivers AS
 SELECT Product, DPD_Bucket, COUNT(DISTINCT Account_ID) AS Account_Count,
@@ -60,7 +60,7 @@ SELECT Product, DPD_Bucket, COUNT(DISTINCT Account_ID) AS Account_Count,
  1.0*SUM(Cure_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0) AS Cure_Rate,
  AVG(Attempts_MTD) AS Average_Attempts
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 GROUP BY Product, DPD_Bucket
 ORDER BY Balance_Recovery_Rate, Outstanding_Balance DESC;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_kpi_drivers IS 'Answers: "Why are collections lagging this month?" and "Which product and DPD bucket combinations are driving the shortfall?" (client query 8). One row per product x DPD bucket with the funnel drivers: balance recovery rate, RPC rate, PTP conversion, broken-promise rate and average attempts. Use for root cause by product and bucket; for the shortfall in money use qry_shortfall_contribution. Do not report Cure_Rate (always 0 in this population).';
@@ -84,9 +84,9 @@ SELECT Account_ID, Product, DPD, DPD_Bucket, Outstanding_Balance, Preferred_Chan
            THEN 'Assign to specialist collector'
       ELSE 'Prioritised collector outreach' END AS Recommended_Action
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0 AND Outstanding_Balance > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0 AND Outstanding_Balance > 0
  AND Nonpayment_Risk>={{live:high_risk_threshold}} AND Payment_Propensity>={{live:intervention_propensity_threshold}};
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_immediate_intervention IS 'Answers: "Which accounts require immediate intervention?" (client query 16, workbook rule R08). One row per account: high risk (Nonpayment_Risk >= high_risk_threshold, 0.70) yet still likely to pay (Payment_Propensity >= intervention_propensity_threshold, 0.25), with a balance, on 15 Sep 2026, plus the recommended next action. Account IDs only, no customer identity. Use for "which accounts to prioritise / act on"; for the money by product and bucket use qry_recovery_opportunity_sizing.';
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_immediate_intervention IS 'Answers: "Which accounts require immediate intervention?" (client query 16, workbook rule R08). One row per account: high risk (Nonpayment_Risk >= high_risk_threshold, 0.70) yet still likely to pay (Payment_Propensity >= intervention_propensity_threshold, 0.25), with a balance, on {{as_of_label}}, plus the recommended next action. Account IDs only, no customer identity. Use for "which accounts to prioritise / act on"; for the money by product and bucket use qry_recovery_opportunity_sizing.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_immediate_intervention.Account_ID IS 'Account identifier (no customer identity)';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_immediate_intervention.Incremental_Recovery_Opportunity IS 'Estimated extra recovery (INR) from working this account';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_immediate_intervention.Recommended_Action IS 'Next step, in order: dispute -> dispute resolution; vulnerable -> hardship support; broken promise and propensity >= 0.35 -> PTP follow-up; not reached and prefers a digital channel -> digital journey; risk >= 0.80 and balance >= 50,000 -> specialist collector; otherwise prioritised outreach (thresholds in business_rules_config)';
@@ -98,11 +98,11 @@ SELECT Treatment_Strategy, Product, DPD_Bucket, Vulnerability_Type,
  1.0*SUM(Cure_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0) AS Cure_Rate,
  1.0*SUM(Dispute_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0) AS Dispute_Rate
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 GROUP BY Treatment_Strategy, Product, DPD_Bucket, Vulnerability_Type
 HAVING COUNT(DISTINCT Account_ID) >= {{live:min_segment_volume}} AND AVG(Attempts_MTD) >= {{live:over_contact_attempts_threshold}}
 ORDER BY Average_Attempts DESC, Cure_Rate;
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_over_contact_risk IS 'Answers: "Are our current collections policies too aggressive?" (client query 18, workbook rule R14). One row per strategy x product x DPD bucket x vulnerability segment with at least min_segment_volume (30) accounts whose average contact attempts reach over_contact_attempts_threshold (4.5, recalibrated from 6.0 which the data never reaches), with RPC and dispute rates. An empty result means no segment is over-contacted. Do not report Cure_Rate.';
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_over_contact_risk IS 'Answers: "Are our current collections policies too aggressive?" (client query 18, workbook rule R14). One row per strategy x product x DPD bucket x vulnerability segment with at least min_segment_volume (30) accounts whose average contact attempts reach over_contact_attempts_threshold (4.5), with RPC and dispute rates. An empty result means no segment is over-contacted. Do not report Cure_Rate.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_over_contact_risk.Average_Attempts IS 'Average contact attempts month to date per account';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_over_contact_risk.Dispute_Rate IS 'Share of accounts with a dispute';
 
@@ -122,12 +122,12 @@ SELECT r.Product, r.DPD_Bucket, r.Outstanding_Balance, r.MTD_Collections, t.Mont
 FROM (
   SELECT Product, DPD_Bucket, SUM(Outstanding_Balance) AS Outstanding_Balance, SUM(Recovery_MTD) AS MTD_Collections
   FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-  WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+  WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
   GROUP BY Product, DPD_Bucket
 ) r
 LEFT JOIN (
   SELECT Product, DPD_Bucket, SUM(Monthly_Target) AS Monthly_Target
-  FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month=DATE '2026-09-01'
+  FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month=DATE '{{target_month}}'
   GROUP BY Product, DPD_Bucket
 ) t ON r.Product=t.Product AND r.DPD_Bucket=t.DPD_Bucket
 ORDER BY Achievement_Pct, Target_Gap DESC;
@@ -137,11 +137,11 @@ CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_shortfall_contribution AS
 WITH perf AS (
   SELECT Product, DPD_Bucket, SUM(Recovery_MTD) AS MTD_Collections
   FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-  WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+  WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
   GROUP BY Product, DPD_Bucket
 ), tgt AS (
   SELECT Product, DPD_Bucket, SUM(Monthly_Target) AS Monthly_Target
-  FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month = DATE '2026-09-01'
+  FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month = DATE '{{target_month}}'
   GROUP BY Product, DPD_Bucket
 ), gaps AS (
   SELECT p.Product, p.DPD_Bucket, p.MTD_Collections, t.Monthly_Target,
@@ -162,7 +162,7 @@ SELECT
  COUNT(DISTINCT CASE WHEN PTP_Due_Date<=Snapshot_Date AND Broken_PTP_Flag=0 THEN Account_ID END) AS Kept_PTP_Accounts,
  COUNT(DISTINCT CASE WHEN Cure_Flag=1 THEN Account_ID END) AS Cured_Accounts
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0;
+WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_collections_funnel IS 'Answers: "How many accounts make it through each stage of the collections funnel?" (client query 6). One row of portfolio-wide account COUNTS: eligible, attempted, right-party contact, promise to pay, promise kept. For the funnel as RATES use qry_funnel_rates; for rates by product, region or any other dimension use the metric view mv_collections_funnel. Do not report Cured_Accounts.';
 
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_funnel_rates AS
@@ -177,7 +177,7 @@ SELECT
   /NULLIF(COUNT(DISTINCT CASE WHEN PTP_Flag=1 AND PTP_Due_Date<=Snapshot_Date
                               THEN Account_ID END),0) AS Broken_Promise_Rate
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0;
+WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_funnel_rates IS 'Answers: "What are our contact, RPC, PTP conversion and broken-promise rates?" for the whole portfolio (client query 7). One row of portfolio-wide RATES. For the same rates by product, region, channel, strategy or any other dimension use the metric view mv_collections_funnel (MEASURE(rpc_rate) ... GROUP BY ...); for stage counts use qry_collections_funnel.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_funnel_rates.Contact_Rate IS 'Accounts contacted / accounts attempted';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_funnel_rates.RPC_Rate IS 'Accounts with a right-party contact / accounts attempted';
@@ -190,7 +190,7 @@ SELECT Primary_Nonpayment_Driver, COUNT(DISTINCT Account_ID) AS Account_Count,
  1.0*SUM(Recovery_MTD)/NULLIF(SUM(Outstanding_Balance),0) AS Recovery_Rate,
  AVG(Nonpayment_Risk) AS Average_Nonpayment_Risk
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
 GROUP BY Primary_Nonpayment_Driver
 ORDER BY Outstanding_Balance DESC, Average_Nonpayment_Risk DESC;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_nonpayment_drivers IS 'Answers: "Why are customers not paying?", "Which non-payment drivers hold the most balance or recover worst?" and the reasons behind broken promises (client query 9). One row per primary non-payment driver (job loss, medical hardship, temporary cash flow, dispute...) with accounts, balance, recovery rate and average risk.';
@@ -205,11 +205,11 @@ WITH a AS (
  SELECT Product, DPD_Bucket, COUNT(DISTINCT Account_ID) AS Account_Count,
   SUM(Outstanding_Balance) AS Outstanding_Balance, SUM(Recovery_MTD) AS MTD_Collections
  FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
- WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+ WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
  GROUP BY Product, DPD_Bucket
 ), t AS (
  SELECT Product, DPD_Bucket, SUM(Monthly_Target) AS Monthly_Target
- FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month=DATE '2026-09-01'
+ FROM {{catalog}}.{{prefix}}_silver.fact_targets WHERE Target_Month=DATE '{{target_month}}'
  GROUP BY Product, DPD_Bucket
 ), j AS (
  SELECT a.*, t.Monthly_Target, 1.0*a.MTD_Collections/NULLIF(t.Monthly_Target,0) AS Target_Achievement_Pct,
@@ -242,7 +242,7 @@ SELECT Product, DPD_Bucket, Balance_Band, Vulnerability_Type, Treatment_Strategy
  1.0*SUM(PTP_Flag)/NULLIF(SUM(RPC_Flag),0) AS PTP_Conversion_Rate,
  1.0*SUM(Cost_MTD)/NULLIF(SUM(Recovery_MTD),0) AS Cost_To_Collect
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
 GROUP BY Product, DPD_Bucket, Balance_Band, Vulnerability_Type, Treatment_Strategy
 HAVING COUNT(DISTINCT Account_ID)>={{live:min_segment_volume}}
 ORDER BY Product, DPD_Bucket, Balance_Band, Cure_Rate DESC;
@@ -258,7 +258,7 @@ WITH cp AS (
   1.0*SUM(PTP_Flag)/NULLIF(SUM(RPC_Flag),0) AS PTP_Conversion_Rate,
   1.0*SUM(Cost_MTD)/NULLIF(SUM(Recovery_MTD),0) AS Cost_To_Collect
  FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
- WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+ WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
  GROUP BY DPD_Bucket, Preferred_Channel HAVING COUNT(DISTINCT Account_ID)>={{live:min_channel_volume}}
 ), ranked AS (
  SELECT *, ROW_NUMBER() OVER(PARTITION BY DPD_Bucket ORDER BY Balance_Recovery_Rate DESC, PTP_Conversion_Rate DESC) AS Channel_Rank FROM cp
@@ -275,7 +275,7 @@ SELECT Product, DPD_Bucket, COUNT(DISTINCT Account_ID) AS Intervention_Accounts,
  AVG(Payment_Propensity) AS Average_Payment_Propensity,
  AVG(Nonpayment_Risk) AS Average_Nonpayment_Risk
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
+WHERE Snapshot_Date=DATE '{{as_of_date}}' AND DPD>0
  AND Nonpayment_Risk>={{live:high_risk_threshold}} AND Payment_Propensity>={{live:intervention_propensity_threshold}}
 GROUP BY Product, DPD_Bucket
 ORDER BY Incremental_Recovery_Opportunity DESC;
@@ -293,7 +293,7 @@ SELECT f.Collector_ID, d.Team, d.Specialization,
  1.0*SUM(f.Cost_MTD)/NULLIF(SUM(f.Recovery_MTD),0) AS Cost_To_Collect
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot f
 LEFT JOIN {{catalog}}.{{prefix}}_silver.dim_collector d ON f.Collector_ID=d.Collector_ID
-WHERE f.Snapshot_Date=DATE '2026-09-15' AND f.DPD>0
+WHERE f.Snapshot_Date=DATE '{{as_of_date}}' AND f.DPD>0
 GROUP BY f.Collector_ID, d.Team, d.Specialization
 HAVING COUNT(DISTINCT f.Account_ID)>={{live:min_segment_volume}}
 ORDER BY Balance_Recovery_Rate DESC;

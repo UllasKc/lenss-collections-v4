@@ -11,7 +11,23 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## Unreleased
+## v4.0.0 — Realistic October story (forked from LensS v1.12.9, 3547f2f)
+
+A separate deployment of the same app, with a harder, believable month. v3 is untouched.
+
+- **New data pack** `LensS_Collections_V4_Data_Pack.xlsx`, as of 20 Oct 2026 (target month Oct 2026), from `deploy/data/generate_v4_data.py` (seed 20261020, reproducible; `--check` prints the story). Same 11 sheets, 41 columns, IDs and dimension values as v3; the same accounts keep their static attributes, the month's activity is regenerated. Flags follow R04–R07, R10 and the roll definitions row by row (checked by the generator). Collector join dates after the snapshot moved back a year; README, Acceptance_Tests dates moved to October.
+- **The story (verified on personal):** target ₹75.7M, collected ₹41.2M (54.5%, 64.5% of the month gone), gap ₹34.4M; 4,248 promises worth ₹88.3M, 1,004 of 2,508 due broken (40.0%); expected from promises ₹21.3M = 0.62× the gap → **Low**; outlook 82.7%. Levers: Personal Loan and Credit Card 31-60 (42.3%, 48.2%), Kolkata RPC 30.7%, Team F, Digital First over-contacting by SMS (6.6 attempts, 23 segments flagged by R14), 1,298 promises (₹26.3M) due in the next 7 days, 610 of them (₹11.7M) at risk. Acting on chapters 4-5 adds ₹11.6M → 98% of target.
+- **Data stops at the as-of date (20 Oct):** no contact, payment or join date after 20 Oct, and no promise falls due after 31 Oct (none in November). Promises taken late in the month get a shorter lag, so every promise is due within October; the 1,740 promises due 21-31 Oct are the month's "still to come".
+- **Dates are one setting:** config `as_of_date` / `target_month`; the deploy templates `{{as_of_date}}`, `{{target_month}}`, `{{as_of_label}}`, `{{month_label}}` into the SQL and passes `LENSS_AS_OF_DATE` to the app (`server/lib/asOf.ts`). No date is hard-coded in the views, dashboard, Explorer, platform guide, Observability or Responsible AI.
+- **New view `gold.qry_cc_action_upside`** (also a Genie source with one example): at-risk promises this week saved (× (1 − honour rate)) + high-value and top-100 priority accounts at the honour rate, each account once. Feeds the hero and the executive summary.
+- **Hero tiles:** Target (a-day-needed · days left), Achieved (% of target · % of month gone), Promises, Likelihood. Outlook and gap coverage moved to the "How the outlook is worked out" note. The Low (and Medium) sentence now ends with the way out ("Acting on this week's priorities… could add ₹X, taking the outlook to Y% of target"), with its arithmetic under the note.
+- **Observability "i" info tips** (`public/js/infotips.js`, one dictionary and helper, IIFE): headline cards, quality tiles and metrics panel, Low-confidence, latency, cache, tokens, Evaluations KPIs and run-history headers, all-time KPI cards. Hover, focus or tap.
+- **Configs:** only `personal.json` and `org.json` (built from org2-v3): prefix `lenss_collections_v4`, Genie "LensS Collections Analytics v4", Lakebase `chatappv4`, apps `lenss-collections-v4` / `lenss-v4`; v3's Genie space ID and workspace path removed.
+- **Raw data in its own folder `raw_data/`:** the v4 data pack (loaded by the deploy) and the v3 pack (the generator's template). Configs, `deploy.py` and the generator point there; `all_details_and _data/` keeps the specification documents and logos.
+- **Brought over from v3 after the fork (5658302): idle stop pause** (`idle_stop_pause`: from, to, tz, enabled; `server/lib/idleStop.ts`, `deploy.py`). Inside the window the app never stops itself. In `org.json` it is present but off (v3's 17:30–07:00 IST was for its demo week); set `"enabled": true` and redeploy `--only app` to use it. A full v3 ↔ v4 comparison found nothing else missing.
+- **Wording:** the run-rate note no longer quotes ~174%; the forecasting limitation names November; R14 note updated (highest segment ~6.6); the exec summary reads the over-contact threshold from the rules and the transform sanity check no longer expects 604.
+
+## Unreleased (v3, before the fork)
 
 - **Telemetry off on personal** (`personal.json`: `"app_telemetry": false`, to save cost; org v3 stays on). Takes effect on personal's next `--only app`. New `docs/LensS_Logging_Guide.md`: what Lakebase records vs app telemetry. Not yet sent to MLOps/Optus (waiting for the user's go-ahead).
 - **`app_telemetry` switch in the configs** (org v3 and personal: `true`). `false` now clears the app's telemetry destination on the next deploy, so it really stops.

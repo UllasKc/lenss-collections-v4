@@ -1,3 +1,4 @@
+import { AS_OF_LABEL } from './asOf.js';
 /**
  * What LensS knows about itself. Questions about the platform ("What is LensS?",
  * "How do I filter by region?", "What does Observability show?") are answered from
@@ -108,7 +109,7 @@ With no filters, every Explorer figure reconciles exactly to the Command Center.
   {
     id: 'data', title: 'What data LensS uses',
     keywords: ['data', 'snapshot', 'as of', 'date', 'refresh', 'updated', 'population', 'accounts in collections', 'dpd', 'currency', 'rupee', 'inr', 'tables', 'views', 'definitions', 'kpi definitions'],
-    text: `- **Population:** accounts in collections (more than 0 days past due, with a balance) on the snapshot date, 15 September 2026, across five products and eight regions. Amounts are in Indian rupees (₹).
+    text: `- **Population:** accounts in collections (more than 0 days past due, with a balance) on the snapshot date, ${AS_OF_LABEL}, across five products and eight regions. Amounts are in Indian rupees (₹).
 - **Definitions** of every figure are in **KPI definitions** on the Command Center (for example: customers reached = right-party contacts ÷ accounts attempted; agreed to pay = promises ÷ customers reached; high-risk = non-payment risk of 0.70 or more).
 - The dashboards and the Assistant use the same certified views, so their figures agree.`,
   },

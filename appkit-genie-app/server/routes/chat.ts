@@ -18,6 +18,7 @@ import { modelLabel, withTokenLedger, type TokenLedger } from '../lib/models.js'
 import { LIBRARY, MORE_SUGGESTIONS, QUICK_START, STARTERS } from '../lib/suggestions.js';
 import { GUARDED_TITLES, generateTitle, isGuardedTitle } from '../lib/titles.js';
 import { Trace, sourcesFromSql } from '../lib/trace.js';
+import { AS_OF, AS_OF_LABEL } from '../lib/asOf.js';
 
 /** The engine is at capacity or hit a transient fault: worth retrying. */
 function busy(message: string | null | undefined): boolean {
@@ -967,6 +968,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       }),
       cache,
       ai,
+      asOf: AS_OF, asOfLabel: AS_OF_LABEL,
       cost: await costView(),
       feedbackQueue: await feedbackQueue(),
     });

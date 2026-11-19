@@ -1448,3 +1448,15 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .cost-empty p{margin-top:6px;color:var(--muted);font-size:13px;line-height:1.6}
 @media(max-width:1020px){.cost-hero,.cost-grid{grid-template-columns:1fr}}
 @media(max-width:480px){.cost-hero{padding:18px}.ch-total{font-size:34px}.ch-tiles{grid-template-columns:1fr}}
+
+/* "i" info tips on the Gen-AI metrics (infotips.js): what a metric means and how it is computed */
+.itip{display:inline-grid;place-items:center;width:15px;height:15px;margin-left:5px;padding:0;border:1px solid currentColor;border-radius:50%;
+  background:transparent;color:var(--muted);font:700 9.5px/1 var(--body);font-style:italic;text-transform:none;letter-spacing:0;vertical-align:1px;cursor:help;opacity:.75}
+.itip:hover,.itip:focus-visible{opacity:1;color:var(--brand-2);outline:none;box-shadow:0 0 0 2px var(--brand-soft)}
+.info-tip{position:fixed;z-index:95;background:#0B1E2D;color:#fff;border-radius:10px;padding:10px 12px;box-shadow:0 10px 28px rgba(0,0,0,.22);
+  pointer-events:none;display:flex;flex-direction:column;gap:5px;text-align:left}
+.info-tip[hidden]{display:none}
+.info-tip-k{font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--aqua)}
+.info-tip-d{font:500 13px/1.45 var(--body)}
+.info-tip-h{font:400 12px/1.45 var(--body);color:#C9DCE6}
+.info-tip-h b{color:#fff;font-weight:600}

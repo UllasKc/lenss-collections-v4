@@ -194,27 +194,49 @@ function renderHero(s, o, cc) {
   document.getElementById('heroSub').innerHTML = need + ({
     Achieved: `We've <b>achieved</b> this month's target.`,
     High: `We're <b>on track</b> to hit this month's target${caveat}.`,
-    Medium: `This month's target is <b>within reach</b>${caveat}.`,
-    Low: `This month's target is <b>at risk</b>: the promises due before month-end won't cover what we still need.`,
+    // Short of target: the risk, then the way out (what acting on chapters 4-5 could add; gold.qry_cc_action_upside, no AI).
+    Medium: `This month's target is <b>within reach</b>${caveat}.` + wayOut(cc.upside),
+    Low: `This month's target is <b>at risk</b>: the promises due before month-end won't cover what we still need.` + wayOut(cc.upside),
   }[likely] || `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target.`);
   document.getElementById('heroProgress').innerHTML = `
     <div class="hp-track"><div class="hp-fill" style="width:${Math.min(100, (ach || 0) * 100).toFixed(1)}%"></div></div>
     <div class="hp-legend"><span><b>${money(s.mtd_collections)}</b> collected of <b>${money(s.monthly_target)}</b> · ${pct(ach)}</span><span>${likely ? `${count(out.Days_Remaining)} days left` : ''}</span></div>`;
   const outlookShare = num(out.Outlook_EOM_Recovery) !== null && num(out.Recovery_Target) ? num(out.Outlook_EOM_Recovery) / num(out.Recovery_Target) : null;
+  // How far through the month the snapshot is: day of the snapshot ÷ days in its month.
+  const day = out.Snapshot_Date ? Number(String(out.Snapshot_Date).slice(8, 10)) : null;
+  const elapsed = day && num(out.Days_Remaining) !== null ? day / (day + num(out.Days_Remaining)) : null;
+  const perDay = num(s.target_gap) !== null && num(out.Days_Remaining) ? num(s.target_gap) / num(out.Days_Remaining) : null;
   document.getElementById('heroStats').innerHTML = [
-    ['Promised this month', money(k.PTP_Amount_Total), num(k.PTP_Accounts) !== null ? `${count(k.Broken_PTP_Accounts)} broken · ${money(k.PTP_Upcoming_Amount)} still to come` : '', 'handshake'],
-    ['Expected from promises', money(out.Expected_From_Promises), num(out.Gap_Coverage) !== null ? `${num(out.Gap_Coverage).toFixed(1)}× what we still need` : '', 'promise'],
-    ['Month-end outlook', money(out.Outlook_EOM_Recovery), outlookShare !== null ? `${pct(outlookShare, 0)} of target` : '', 'gap'],
+    ['Target', money(s.monthly_target), perDay !== null ? `${money(perDay)} a day needed · ${count(out.Days_Remaining)} days left` : '', 'target'],
+    ['Achieved', money(s.mtd_collections), ach !== null ? `${pct(ach, 0)} of target${elapsed !== null ? ` · ${pct(elapsed, 0)} of the month gone` : ''}` : '', 'cash'],
+    ['Promises', money(k.PTP_Amount_Total), num(k.PTP_Accounts) !== null ? `${count(k.Broken_PTP_Accounts)} broken · ${money(k.PTP_Upcoming_Amount)} still to come` : '', 'handshake'],
     ['Likelihood of hitting target', hEsc(likely || '—'), 'High ≥ 1.5× · Medium ≥ 1× · Low < 1×', 'check'],
   ].map(([l, v, sub, ic]) => `<div class="hs"><div class="hs-ico">${icon(ic)}</div><div><div class="hs-l">${l}</div><div class="hs-v">${v}</div><div class="hs-s">${sub}</div></div></div>`).join('');
   // Timestamps come from the warehouse in UTC; shown in the viewer's local time.
   const when = (v) => { const d = v ? new Date(v.replace(' ', 'T') + 'Z') : null; return d && !isNaN(d) ? d.toLocaleString() : v; };
-  // The outlook's arithmetic in words, with the real figures.
+  // The outlook's arithmetic in words, with the real figures (the outlook and the promises' share moved here from the tiles).
   document.getElementById('heroNote').innerHTML = (likely
-    ? `<div><b>How the outlook is worked out:</b> ${money(out.Recovery_Achieved ?? s.mtd_collections)} collected so far + ${money(out.Expected_From_Promises)} expected from promises = ${money(out.Outlook_EOM_Recovery)}. ` +
+    ? `<div><b>How the outlook is worked out:</b> ${money(out.Recovery_Achieved ?? s.mtd_collections)} collected so far + ${money(out.Expected_From_Promises)} expected from promises = ${money(out.Outlook_EOM_Recovery)}` +
+      `${outlookShare !== null ? ` (${pct(outlookShare, 0)} of target)` : ''}. ` +
       `The ${count(out.Promises_Rest_Of_Month)} promises still due this month (of ${count(counts(o, cc).promised)} made) are worth ${money(out.Promised_Rest_Of_Month)}; ` +
-      `so far ${pct(out.Promise_Honour_Rate, 0)} of the promises that fell due were kept, so we count ${pct(out.Promise_Honour_Rate, 0)} of that.</div>`
+      `so far ${pct(out.Promise_Honour_Rate, 0)} of the promises that fell due were kept, so we count ${pct(out.Promise_Honour_Rate, 0)} of that` +
+      `${num(out.Gap_Coverage) !== null ? `: ${num(out.Gap_Coverage).toFixed(2)}× the ${money(s.target_gap)} we still need` : ''}.</div>` + wayOutNote(cc.upside)
     : '') + (s.data_refreshed_at ? `<div class="hero-refresh">Data refreshed on ${when(s.data_refreshed_at)}</div>` : '');
+}
+
+/** The way out, in one sentence: what acting on this week's queues and the priority list could add. */
+function wayOut(u) {
+  if (!u || num(u.Action_Upside) === null || !num(u.Action_Upside)) return '';
+  return ` Acting on <a href="#ch4">this week's priorities</a> and <a href="#ch5">the priority accounts</a> could add <b>${money(u.Action_Upside)}</b>, ` +
+    `taking the outlook to <b>${pct(u.Outlook_With_Action_Pct, 0)}</b> of target.`;
+}
+/** How that figure is worked out, under the outlook's own arithmetic. */
+function wayOutNote(u) {
+  if (!u || num(u.Action_Upside) === null || !num(u.Action_Upside)) return '';
+  return `<div><b>If we act:</b> saving the ${count(u.At_Risk_Promises)} promises due this week that look likely to break adds ${money(u.Promises_Saved)} ` +
+    `(${money(u.At_Risk_Promised)} promised, of which the outlook already counts ${pct(u.Promise_Honour_Rate, 0)}); working the ${count(u.Accounts_Worked)} other high-value and priority accounts ` +
+    `(${money(u.Accounts_Recoverable)} recoverable) at the same ${pct(u.Promise_Honour_Rate, 0)} adds ${money(u.Accounts_Recovered)}. ` +
+    `Together ${money(u.Action_Upside)}, so ${money(u.Outlook_With_Action)} (${pct(u.Outlook_With_Action_Pct, 0)} of target). A sizing of the plan, not a forecast.</div>`;
 }
 
 /**
@@ -243,7 +265,8 @@ function renderExecSummary(s, o, cc) {
     Achieved: 'Target achieved.',
     High: `On track to beat the ${money(s.monthly_target)} target, but only if customers keep their promises.`,
     Medium: `The ${money(s.monthly_target)} target is within reach, but only if customers keep their promises.`,
-    Low: `The ${money(s.monthly_target)} target is at risk; this week's promises decide it.`,
+    Low: `The ${money(s.monthly_target)} target is at risk; this week's promises decide it.` +
+      (cc.upside && num(cc.upside.Outlook_With_Action_Pct) ? ` Acting on chapters 4 and 5 could take us to about ${pct(cc.upside.Outlook_With_Action_Pct, 0)} of target.` : ''),
   }[likely];
   document.getElementById('execSumBottom').innerHTML = `<span class="es-bl">Bottom line</span>${hEsc(verdict)}`;
   const rows = [

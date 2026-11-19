@@ -1,6 +1,7 @@
 import express from 'express';
 import { currentVersions, type Lakebase } from '../lib/answerCache.js';
 import { runSql } from '../lib/sql.js';
+import { AS_OF } from '../lib/asOf.js';
 
 const GOLD = process.env.LENSS_GOLD_SCHEMA ?? 'cnx_automl_dev.lenss_collections_gold';
 if (!/^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(GOLD)) {
@@ -212,7 +213,7 @@ export function buildExplorerRouter(db: Lakebase): express.Router {
           if (better) best.set(String(r.DPD_Bucket), r);
         }
         return {
-          asOf: '2026-09-15', applied, totals: totals[0] ?? null, portfolio: portfolio[0] ?? null,
+          asOf: AS_OF, applied, totals: totals[0] ?? null, portfolio: portfolio[0] ?? null,
           by: { product: products, bucket: buckets, region: regions, channel: channels, strategy: strategies,
             driver: drivers, team: teams, band: bands, vulnerability },
           collectors: { count: collectors.length, top: collectors.slice(0, 10), bottom: collectors.slice(-10).reverse() },

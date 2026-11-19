@@ -3,6 +3,9 @@
 // of runs (so a change to the semantic model, the models or the guardrails can
 // be compared with the run before it), each case's result, and the cases.
 
+/** The "i" info tip for a Gen-AI metric (infotips.js); empty until that script has loaded. */
+const evalTip = key => (window.infoTip ? window.infoTip(key) : '');
+
 let evalData = null;
 let evalPoll = null;
 let evalSelectedRun = null;
@@ -85,15 +88,15 @@ function renderEvalKpis() {
     const d = Math.round((now - before) * 100);
     return d ? ` · ${d > 0 ? '▲' : '▼'}${Math.abs(d)} vs previous` : ' · same as previous';
   };
-  k.appendChild(kpiCard('Accuracy', a && a.graded ? pct0(a.passRate) : '—', a ? `${a.passed}/${a.graded} ground-truth questions passed${trend(a.passRate, pa && pa.passRate)}` : 'Not in this run',
+  k.appendChild(kpiCard(`Accuracy${evalTip('accuracy')}`, a && a.graded ? pct0(a.passRate) : '—', a ? `${a.passed}/${a.graded} ground-truth questions passed${trend(a.passRate, pa && pa.passRate)}` : 'Not in this run',
     a && a.passRate !== null ? (a.passRate >= 0.8 ? 'good' : 'warn') : null));
-  k.appendChild(kpiCard('Correctness', a ? pct0(a.correctness) : '—', 'Ground-truth figures matched'));
-  k.appendChild(kpiCard('Faithfulness', a ? pct0(a.faithfulness) : '—', a ? `Relevance ${pct0(a.relevance)} · Completeness ${pct0(a.completeness)}` : ''));
-  k.appendChild(kpiCard('Guardrails', g && g.graded ? pct0(g.passRate) : '—', g ? `${g.passed}/${g.graded} red-team and false-positive cases` : 'Not in this run',
+  k.appendChild(kpiCard(`Correctness${evalTip('correctness')}`, a ? pct0(a.correctness) : '—', 'Ground-truth figures matched'));
+  k.appendChild(kpiCard(`Faithfulness${evalTip('faithfulness')}`, a ? pct0(a.faithfulness) : '—', a ? `Relevance ${pct0(a.relevance)} · Completeness ${pct0(a.completeness)}` : ''));
+  k.appendChild(kpiCard(`Guardrails${evalTip('guardrails')}`, g && g.graded ? pct0(g.passRate) : '—', g ? `${g.passed}/${g.graded} red-team and false-positive cases` : 'Not in this run',
     g && g.passRate !== null ? (g.passRate >= 0.9 ? 'good' : 'warn') : null));
-  k.appendChild(kpiCard('Policy checks', p && p.graded ? pct0(p.passRate) : '—', p ? `${p.passed}/${p.graded} answer-wording cases` : 'Not in this run',
+  k.appendChild(kpiCard(`Policy checks${evalTip('policy')}`, p && p.graded ? pct0(p.passRate) : '—', p ? `${p.passed}/${p.graded} answer-wording cases` : 'Not in this run',
     p && p.passRate !== null ? (p.passRate >= 0.9 ? 'good' : 'warn') : null));
-  k.appendChild(kpiCard('Routing', ro && ro.graded ? pct0(ro.passRate) : '—', ro ? `${ro.passed}/${ro.graded} conversations routed as expected` : 'Not in this run',
+  k.appendChild(kpiCard(`Routing${evalTip('routing')}`, ro && ro.graded ? pct0(ro.passRate) : '—', ro ? `${ro.passed}/${ro.graded} conversations routed as expected` : 'Not in this run',
     ro && ro.passRate !== null ? (ro.passRate >= 0.9 ? 'good' : 'warn') : null));
 }
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import { currentVersions, type Lakebase } from '../lib/answerCache.js';
 import { runSql } from '../lib/sql.js';
+import { AS_OF, AS_OF_SQL } from '../lib/asOf.js';
 
 const GOLD = process.env.LENSS_GOLD_SCHEMA ?? 'cnx_automl_dev.lenss_collections_gold';
 if (!/^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(GOLD)) {
@@ -126,7 +127,7 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
     });
     const [portfolio, funnel, rates, products, shortfall, buckets, heat, channels, actions, topAccounts,
       drivers, strategies, regions, vulnerability, collectors, overContact, opportunity,
-      ccKpis, outlook, ccActions, riskSnapshot, channelEff, regionView] = await Promise.all([
+      ccKpis, outlook, ccActions, riskSnapshot, channelEff, regionView, upside] = await Promise.all([
       q(`SELECT MEASURE(account_count) AS accounts, MEASURE(outstanding_balance) AS outstanding,
                 MEASURE(mtd_collections) AS recovered, MEASURE(total_cost) AS cost,
                 MEASURE(cost_to_collect) AS cost_to_collect, MEASURE(high_risk_accounts) AS high_risk,
@@ -173,18 +174,20 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
       q(`SELECT * FROM ${GOLD}.qry_cc_risk_snapshot ORDER BY Bucket_Order`),
       q(`SELECT * FROM ${GOLD}.qry_cc_channel ORDER BY Recovery_Rate DESC`),
       q(`SELECT * FROM ${GOLD}.qry_cc_region ORDER BY Recovery_Rate DESC`),
+      // v4: what acting on chapters 4-5 could add to the outlook (the hero's way out).
+      q(`SELECT * FROM ${GOLD}.qry_cc_action_upside`),
     ]);
     const top = collectors.slice(0, 10);
     const bottom = collectors.slice(-10).reverse();
     return {
-      asOf: '2026-09-15',
+      asOf: AS_OF,
       portfolio: portfolio[0] ?? null, funnel: funnel[0] ?? null, rates: rates[0] ?? null,
       products, shortfall, buckets, heat, channels, actions, topAccounts, drivers, strategies, regions, vulnerability,
       collectors: { count: collectors.length, top, bottom, best: collectors[0] ?? null, worst: collectors[collectors.length - 1] ?? null },
       overContact: overContact[0] ?? null, opportunity,
       cc: {
         kpis: ccKpis[0] ?? null, outlook: outlook[0] ?? null, actions: ccActions[0] ?? null,
-        riskSnapshot, channels: channelEff, regions: regionView,
+        riskSnapshot, channels: channelEff, regions: regionView, upside: upside[0] ?? null,
       },
     };
   };
@@ -199,7 +202,7 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
    * list), on the account-level view. Lists are fixed here; a request only picks one, plus a
    * product, arrears stage or next step where the list needs it (checked against the data).
    */
-  const SNAP = `DATE '2026-09-15'`;
+  const SNAP = AS_OF_SQL;
   // A threshold from gold.business_rules_config (through qry_rules), so a list always matches its card.
   const rule = (name: string) => `(SELECT ${name} FROM ${GOLD}.qry_rules)`;
   const DUE_7D = `b.PTP_Flag = 1 AND b.PTP_Due_Date > ${SNAP} AND b.PTP_Due_Date <= DATE_ADD(${SNAP}, CAST(${rule('queue_ptp_window_days')} AS INT))`;

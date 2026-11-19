@@ -15,7 +15,7 @@ INSERT INTO {{catalog}}.{{prefix}}_gold.business_rules_config VALUES
 ('high_risk_threshold', 0.70, 'R07: a high-risk account has Nonpayment_Risk >= 0.70. Used by qry_immediate_intervention, qry_recovery_opportunity_sizing, qry_cc_kpis, qry_cc_region, qry_explorer_base and the metric view measure high_risk_accounts.'),
 ('intervention_propensity_threshold', 0.25, 'R08: immediate intervention = high risk (R07) AND Payment_Propensity >= 0.25 AND balance > 0. Used by qry_immediate_intervention and qry_recovery_opportunity_sizing.'),
 ('underperformance_gap_pts', 0.05, 'R09: a product x DPD bucket is materially underperforming when its target achievement is more than 5 percentage points below the portfolio''s. Used by qry_underperforming_segments.'),
-('over_contact_attempts_threshold', 4.5, 'R14 (heuristic): a segment averaging 4.5+ contact attempts is flagged as over-contact risk. Recalibrated from the sample document''s 6.0, which the data never reaches (highest segment ~5.3). Used by qry_over_contact_risk.'),
+('over_contact_attempts_threshold', 4.5, 'R14 (heuristic): a segment averaging 4.5+ contact attempts is flagged as over-contact risk. Recalibrated from the sample document''s 6.0 for the v3 data, where no segment reached 6.0; kept at 4.5 for v4 (highest segment ~6.6). Used by qry_over_contact_risk.'),
 -- Volume minimums (control #7 in the SQL-generation controls)
 ('min_segment_volume', 30, 'Minimum accounts before a segment, strategy or collector is ranked or recommended. Used by qry_over_contact_risk, qry_strategy_like_for_like, qry_underperforming_segments (supporting detail) and qry_collector_scorecard.'),
 ('min_channel_volume', 50, 'Minimum accounts per DPD bucket x channel before qry_recommended_channel ranks it.'),

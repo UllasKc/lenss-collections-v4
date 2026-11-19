@@ -102,7 +102,7 @@ window.loadResponsibleAi = async function loadResponsibleAi() {
     <div class="card">
       <h3>Known limitations</h3>
       <ul class="rai-list">
-        <li>Data is a single snapshot (as of 2026-09-15); it doesn't predict month-end results.</li>
+        <li>Data is a single snapshot${t && t.asOf ? ` (as of ${String(t.asOf).replace(/[^0-9-]/g, '')})` : ''}; it doesn't predict month-end results.</li>
         <li>Strategy comparisons show <b>observed differences</b> between matched segments, not the uplift a change would cause.</li>
         <li>AI can misread a question or make mistakes. Check the quality badge, and the SQL under "How this answer was made", before acting.</li>
         <li>Agent mode takes 1 to 3 minutes for multi-step analysis; Chat mode is faster for simple questions.</li>

@@ -15,9 +15,9 @@ import uuid
 METRIC_VIEWS = ["mv_performance_targets", "mv_collections_funnel"]
 TABLES = [
     "business_rules_config",
-    # qry_month_end_forecast is deliberately NOT a source: a calendar-day run rate
-    # on this single mid-month snapshot projects ~174% of target, which contradicts
-    # MTD-vs-target and misled Agent answers. The view stays in gold for reference.
+    # qry_month_end_forecast is deliberately NOT a source: a calendar-day run rate on a
+    # single snapshot ignores when promises fall due (on the v3 data it projected ~174% of
+    # target and misled Agent answers). The view stays in gold for reference.
     "qry_mtd_vs_target", "qry_kpi_drivers",
     "qry_immediate_intervention", "qry_over_contact_risk",
     "qry_product_vs_target", "qry_product_bucket_performance", "qry_shortfall_contribution",
@@ -26,7 +26,7 @@ TABLES = [
     "qry_recovery_opportunity_sizing", "qry_collector_scorecard",
     # Command Center views (deploy/sql/70_command_center_views.sql)
     "qry_cc_kpis", "qry_cc_risk_snapshot", "qry_cc_target_outlook", "qry_cc_actions", "qry_cc_action_accounts", "qry_cc_priority_accounts",
-    "qry_cc_channel", "qry_cc_region",
+    "qry_cc_channel", "qry_cc_region", "qry_cc_action_upside",
 ]
 
 INSTRUCTIONS_TEXT = """COLLECTIONS ANALYTICS — RULES AND GUARDRAILS
@@ -37,7 +37,7 @@ questions are out of scope for this space.
 
 CURRENCY AND FORMAT
 - All monetary amounts are in Indian Rupees (INR). Always show them with the ₹ symbol, never $,
-  e.g. ₹53.4M, ₹612K, ₹2,450. Use M (million) and K (thousand) for large amounts, consistently.
+  e.g. ₹41.2M, ₹612K, ₹2,450. Use M (million) and K (thousand) for large amounts, consistently.
 
 CALCULATION RULES
 - Always resolve an explicit as-of Snapshot_Date; MTD windows run from the first
@@ -80,7 +80,8 @@ WHICH VIEW ANSWERS WHICH QUESTION (prefer these; each view's description says mo
   by product x bucket): qry_kpi_drivers. Underperforming segments: qry_underperforming_segments.
 - Headline KPIs / "how are we doing": qry_cc_kpis. Distribution by DPD bucket:
   qry_cc_risk_snapshot. Outlook for the month (a promise pipeline, never a forecast):
-  qry_cc_target_outlook.
+  qry_cc_target_outlook. What acting on this week's queues and the priority list could add
+  to that outlook (a sizing of the plan, never a forecast): qry_cc_action_upside.
 - Rates (RPC, PTP conversion, broken promises, contact, recovery, cost to collect) by any
   dimension: the metric view mv_collections_funnel with MEASURE(...) GROUP BY the dimension.
   Portfolio-wide rates in one row: qry_funnel_rates. Funnel stage counts: qry_collections_funnel.
@@ -123,7 +124,7 @@ new strategy deliver?", "how much more would we recover if we switched to X?",
 - Recommend a controlled champion/challenger test (randomly assigned holdout) as the
   way to measure true uplift before switching strategies at scale.
 - Never forecast or project the month-end outcome, and never state a probability of
-  hitting a target. Only one mid-month snapshot exists, so no reliable projection
+  hitting a target. Only one snapshot exists, so no reliable projection
   can be made. Report MTD collections, the monthly target, achievement % and the
   gap (from qry_mtd_vs_target), and say that a month-end forecast needs daily
   payment history that this dataset does not have.
@@ -221,6 +222,8 @@ def examples(g: str):
          f"SELECT DPD_Bucket, Accounts, Outstanding_Balance, Account_Share, Balance_Share, Recovery_Rate FROM {g}.qry_cc_risk_snapshot ORDER BY Bucket_Order;"),
         ("Are we on track for this month's target? / What is the outlook for the month?",
          f"SELECT Recovery_Target, Recovery_Achieved, Achievement_Pct, Target_Gap, Promised_Rest_Of_Month, Promise_Honour_Rate, Expected_From_Promises, Outlook_EOM_Recovery, Target_Likelihood FROM {g}.qry_cc_target_outlook;"),
+        ("Can we still hit the target? / What would acting this week add to the outlook?",
+         f"SELECT Recovery_Target, Outlook_EOM_Recovery, Target_Likelihood, At_Risk_Promises, Promises_Saved, Accounts_Worked, Accounts_Recovered, Action_Upside, Outlook_With_Action, Outlook_With_Action_Pct FROM {g}.qry_cc_action_upside;"),
         ("What should we do this week? / What are the action queues?",
          f"SELECT * FROM {g}.qry_cc_actions;"),
         ("Which promises to pay are due in the next 7 days, and which are likely to break?",

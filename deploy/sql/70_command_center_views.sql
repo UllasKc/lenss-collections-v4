@@ -33,8 +33,8 @@ SELECT
   SUM(Cost_MTD)                                                              AS Collection_Cost,
   1.0*SUM(Cost_MTD)/NULLIF(SUM(Recovery_MTD),0)                              AS Cost_To_Collect
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0;
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_kpis IS 'Answers: "How are we doing overall?" / "Are we good for today?" / the headline KPIs. One row for the whole portfolio in collections on 15 Sep 2026: outstanding balance, recovered MTD, recovery rate, accounts, RPC rate, promises and broken promises, roll rates, high-risk accounts and balance (Nonpayment_Risk >= high_risk_threshold, 0.70) and cost to collect. The Command Center headline cards. For target achievement use qry_mtd_vs_target.';
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0;
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_kpis IS 'Answers: "How are we doing overall?" / "Are we good for today?" / the headline KPIs. One row for the whole portfolio in collections on {{as_of_label}}: outstanding balance, recovered MTD, recovery rate, accounts, RPC rate, promises and broken promises, roll rates, high-risk accounts and balance (Nonpayment_Risk >= high_risk_threshold, 0.70) and cost to collect. The Command Center headline cards. For target achievement use qry_mtd_vs_target.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Rate IS 'Accounts with a promise to pay / all accounts in collections';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Broken_PTP_Rate IS 'Broken promises / all accounts in collections';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Broken_Share_Of_Due_Promises IS 'Broken promises / promises already due: the broken-promise rate quoted on the Command Center';
@@ -57,7 +57,7 @@ SELECT DPD_Bucket,
   1.0*SUM(Outstanding_Balance)/SUM(SUM(Outstanding_Balance)) OVER () AS Balance_Share,
   1.0*SUM(Recovery_MTD)/NULLIF(SUM(Outstanding_Balance),0) AS Recovery_Rate
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 GROUP BY DPD_Bucket;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_risk_snapshot IS 'Answers: "How is our portfolio distributed across DPD buckets, and where is the risk concentrated?" One row per DPD bucket (order by Bucket_Order): accounts, outstanding balance, their shares of the portfolio, and recovery rate. Use for the portfolio''s distribution by arrears stage; use qry_kpi_drivers for drivers by product and bucket.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_risk_snapshot.Bucket_Order IS 'Sort order of the DPD buckets, earliest arrears first';
@@ -79,7 +79,7 @@ WITH t AS (
     MAX(Snapshot_Date) AS Snapshot_Date,
     DATEDIFF(LAST_DAY(MAX(Snapshot_Date)), MAX(Snapshot_Date)) AS Days_Remaining
   FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-  WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+  WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 )
 SELECT t.Recovery_Target, t.Recovery_Achieved,
   1.0*t.Recovery_Achieved/NULLIF(t.Recovery_Target,0) AS Achievement_Pct,
@@ -103,7 +103,7 @@ COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_target_outlook.Gap_Coverage
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_cc_actions AS
 WITH base AS (
   SELECT * FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-  WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+  WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 ), top_opp AS (
   SELECT Incremental_Recovery_Opportunity, Outstanding_Balance FROM (
     SELECT Incremental_Recovery_Opportunity, Outstanding_Balance,
@@ -155,7 +155,7 @@ SELECT Account_ID, Product, DPD, DPD_Bucket, Region, Preferred_Channel, Outstand
        WHEN Payment_Propensity >= {{live:queue_high_propensity}} AND Outstanding_Balance >= {{live:queue_high_balance}} THEN 'High propensity, high balance'
        ELSE NULL END AS Action_Queue
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
   AND ((PTP_Flag=1 AND PTP_Due_Date > Snapshot_Date AND PTP_Due_Date <= DATE_ADD(Snapshot_Date, CAST({{live:queue_ptp_window_days}} AS INT)))
        OR DPD BETWEEN {{live:queue_roll_from_dpd}} AND {{live:queue_roll_to_dpd}}
        OR (Payment_Propensity >= {{live:queue_high_propensity}} AND Outstanding_Balance >= {{live:queue_high_balance}}));
@@ -180,7 +180,7 @@ SELECT Preferred_Channel AS Channel, COUNT(DISTINCT Account_ID) AS Accounts,
   1.0*SUM(Recovery_MTD)/NULLIF(SUM(Outstanding_Balance),0) AS Recovery_Rate,
   1.0*SUM(Cost_MTD)/NULLIF(SUM(Recovery_MTD),0) AS Cost_To_Collect
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 GROUP BY Preferred_Channel;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_channel IS 'Answers: "How effective are our SMS, WhatsApp, voice and digital journeys?" / "Which channel works best overall?" (client query 14). One row per preferred channel: accounts, RPC rate, PTP conversion, recovery rate and cost to collect. Recovery is attributed to the preferred channel (demo limitation, rule R11). For the best channel per DPD bucket use qry_recommended_channel; for channels by any other dimension use mv_collections_funnel.';
 
@@ -193,7 +193,7 @@ SELECT Region, COUNT(DISTINCT Account_ID) AS Accounts, SUM(Outstanding_Balance) 
   1.0*SUM(CASE WHEN Nonpayment_Risk >= {{live:high_risk_threshold}} THEN 1 ELSE 0 END)/NULLIF(COUNT(DISTINCT Account_ID),0) AS High_Risk_Share,
   AVG(Nonpayment_Risk) AS Avg_Nonpayment_Risk
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
-WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
+WHERE Snapshot_Date = DATE '{{as_of_date}}' AND DPD > 0
 GROUP BY Region;
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_region IS 'Answers: "Which regions are underperforming on recovery?" / "How do regions compare?" One row per region: accounts, balance, recovery rate, RPC rate, PTP conversion and the share of high-risk accounts (risk >= high_risk_threshold, 0.70). For other rates by region (e.g. broken promises) use mv_collections_funnel grouped by Region.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_region.High_Risk_Share IS 'Share of the region''s accounts with Nonpayment_Risk >= 0.70 (rule R07)';
@@ -219,6 +219,46 @@ SELECT f.Account_ID, f.Product, f.DPD_Bucket,
   f.Payment_Propensity, f.Nonpayment_Risk, f.Incremental_Recovery_Opportunity
 FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot f
 LEFT JOIN {{catalog}}.{{prefix}}_silver.dim_collector c ON f.Collector_ID = c.Collector_ID
-WHERE f.Snapshot_Date = DATE '2026-09-15' AND f.DPD > 0 AND f.Outstanding_Balance > 0;
-COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_explorer_base IS 'The Explorer tab''s data: one row per account in collections on 15 Sep 2026 with every dimension the Explorer filters on and the flags its measures are built from (same formulas as the metric views, so an unfiltered Explorer matches the Command Center). Account IDs only. Read by the app, not a Genie source.';
+WHERE f.Snapshot_Date = DATE '{{as_of_date}}' AND f.DPD > 0 AND f.Outstanding_Balance > 0;
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_explorer_base IS 'The Explorer tab''s data: one row per account in collections on {{as_of_label}} with every dimension the Explorer filters on and the flags its measures are built from (same formulas as the metric views, so an unfiltered Explorer matches the Command Center). Account IDs only. Read by the app, not a Genie source.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_explorer_base.High_Risk_Flag IS '1 when Nonpayment_Risk >= high_risk_threshold (0.70, rule R07)';
+
+-- 8. The way out (v4): what acting on chapters 4-5 could add to the outlook. Not a forecast:
+-- the promises at risk this week, if saved (the part the outlook doesn't already count, at
+-- 1 - honour rate), plus the incremental recovery of the high-value accounts and the priority
+-- list, recovered at the rate promises are honoured today. An account in several queues counts
+-- once (an at-risk promise's account only through its promise).
+CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_cc_action_upside AS
+WITH base AS (
+  SELECT f.*,
+    CASE WHEN PTP_Flag=1 AND PTP_Due_Date > Snapshot_Date AND PTP_Due_Date <= DATE_ADD(Snapshot_Date, CAST({{live:queue_ptp_window_days}} AS INT))
+              AND (Payment_Propensity < {{live:queue_break_propensity}} OR Nonpayment_Risk >= {{live:queue_break_risk}}) THEN 1 ELSE 0 END AS At_Risk_7d,
+    CASE WHEN Payment_Propensity >= {{live:queue_high_propensity}} AND Outstanding_Balance >= {{live:queue_high_balance}} THEN 1 ELSE 0 END AS High_Value,
+    CASE WHEN p.Account_ID IS NOT NULL THEN 1 ELSE 0 END AS Priority
+  FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot f
+  LEFT JOIN (SELECT Account_ID FROM {{catalog}}.{{prefix}}_gold.qry_cc_priority_accounts) p ON p.Account_ID = f.Account_ID
+  WHERE f.Snapshot_Date = DATE '{{as_of_date}}' AND f.DPD > 0
+), u AS (
+  SELECT
+    SUM(CASE WHEN At_Risk_7d=1 THEN PTP_Amount ELSE 0 END) AS At_Risk_Promised,
+    SUM(CASE WHEN At_Risk_7d=1 THEN 1 ELSE 0 END) AS At_Risk_Promises,
+    SUM(CASE WHEN At_Risk_7d=0 AND (High_Value=1 OR Priority=1) THEN Incremental_Recovery_Opportunity ELSE 0 END) AS Accounts_Recoverable,
+    SUM(CASE WHEN At_Risk_7d=0 AND (High_Value=1 OR Priority=1) THEN 1 ELSE 0 END) AS Accounts_Worked
+  FROM base
+)
+SELECT o.Recovery_Target, o.Recovery_Achieved, o.Outlook_EOM_Recovery, o.Target_Likelihood, o.Promise_Honour_Rate,
+  u.At_Risk_Promises, u.At_Risk_Promised,
+  u.At_Risk_Promised * (1 - o.Promise_Honour_Rate) AS Promises_Saved,
+  u.Accounts_Worked, u.Accounts_Recoverable,
+  u.Accounts_Recoverable * o.Promise_Honour_Rate AS Accounts_Recovered,
+  u.At_Risk_Promised * (1 - o.Promise_Honour_Rate) + u.Accounts_Recoverable * o.Promise_Honour_Rate AS Action_Upside,
+  o.Outlook_EOM_Recovery + u.At_Risk_Promised * (1 - o.Promise_Honour_Rate) + u.Accounts_Recoverable * o.Promise_Honour_Rate AS Outlook_With_Action,
+  (o.Outlook_EOM_Recovery + u.At_Risk_Promised * (1 - o.Promise_Honour_Rate) + u.Accounts_Recoverable * o.Promise_Honour_Rate)
+    / NULLIF(o.Recovery_Target, 0) AS Outlook_With_Action_Pct
+FROM {{catalog}}.{{prefix}}_gold.qry_cc_target_outlook o CROSS JOIN u;
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_action_upside IS 'Answers: "Can we still hit the target?" / "What would acting this week add?" One row: the Command Center outlook plus what working chapters 4-5 could add, a sizing of the action plan, never a forecast or probability. Action_Upside = the promises due in the next {{rule:queue_ptp_window_days}} days that are likely to break, if saved (At_Risk_Promised x (1 - honour rate), the part the outlook does not already count) + the incremental recovery of the high propensity, high balance accounts and the priority list (qry_cc_priority_accounts), at the honour rate. Each account counts once. Present it as "if we act on these queues", alongside qry_cc_target_outlook.';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_upside.Promises_Saved IS 'At-risk promises due this week x (1 - honour rate): what saving them adds beyond the outlook';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_upside.Accounts_Recoverable IS 'Incremental recovery opportunity (INR) of the high-value and priority accounts not already in the at-risk promise queue';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_upside.Accounts_Recovered IS 'Accounts_Recoverable x honour rate: what working them could bring in';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_upside.Action_Upside IS 'Promises_Saved + Accounts_Recovered (INR)';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_upside.Outlook_With_Action_Pct IS '(Outlook + Action_Upside) / target (a fraction)';
